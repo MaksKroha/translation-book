@@ -272,10 +272,10 @@ def book_page(site, book, sizes):
     <h1>{e(book['title_uk'])}</h1>
     <p class="sub">{e(book['subtitle_uk'])}</p>
     <p class="author">{e(book['author_uk'])} <span>{e(book['coauthor_uk'])}</span></p>
-    <p class="orig"><span lang="en">{e(book['title_original'])}</span> українською · PDF</p>
+    <p class="orig"><span lang="en">{e(book['title_original'])}</span> українською&nbsp;· PDF</p>
     <div class="price-row">
       {buy_button(site, book)}
-      <span class="note">≈ ${e(site['price_usd_hint'])} · завантаження одразу після оплати</span>
+      <span class="note">≈&nbsp;${e(site['price_usd_hint'])}&nbsp;· завантаження одразу після оплати</span>
     </div>
     <dl class="facts">
       <dt>Оригінальна назва</dt><dd lang="en">{e(book['title_original'])}: {e(book['subtitle_original'])}</dd>

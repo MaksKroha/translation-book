@@ -1,5 +1,7 @@
 // Cloudflare Worker entry: routes checkout URLs to the handlers in functions/,
 // everything else is served from the static files in public/ (env.ASSETS).
+// The cron trigger (wrangler.jsonc → triggers.crons) runs scheduled() to poll the jar.
+import { pollJar } from "../lib/jar.js";
 import * as buy from "../functions/buy/[slug].js";
 import * as pay from "../functions/pay/index.js";
 import * as order from "../functions/api/order.js";
@@ -27,5 +29,11 @@ export default {
       return handler({ request, env, params: getParams(m), waitUntil: (p) => ctx.waitUntil(p) });
     }
     return env.ASSETS.fetch(request);
+  },
+
+  // Every 5 minutes: read the jar statement, so payments are matched even when the webhook
+  // failed or was switched off and no buyer has their /pay/ page open.
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(pollJar(env));
   },
 };

@@ -40,6 +40,11 @@ def load():
         warnings.append("site.seller.name is not filled in.")
     if "example.com" in site["contact_email"]:
         warnings.append("site.contact_email is still a placeholder.")
+    if site.get("sales_enabled") and not site.get("turnstile_site_key"):
+        # Fail the build (the live site stays as it is) rather than deploy a Buy button with no bot check.
+        sys.exit("ERROR: site.turnstile_site_key is empty, but sales_enabled is true. Create a free "
+                 "Turnstile widget (Cloudflare dashboard → Turnstile), put its site key in catalog.json and "
+                 "its secret key in the Worker secret TURNSTILE_SECRET_KEY. See PIPELINE.md, step 3.6.")
     return site, cat["books"], warnings
 
 
@@ -124,9 +129,17 @@ def page(site, head_html, body):
 """
 
 
+TURNSTILE_JS = "https://challenges.cloudflare.com/turnstile/v0/api.js"
+
+
 def buy_button(site, book, extra_class=""):
     if site.get("sales_enabled"):
-        return (f'<form class="buy-form {extra_class}" method="post" action="/buy/{e(book["slug"])}">'
+        # Turnstile adds a hidden "cf-turnstile-response" field that functions/buy/[slug].js verifies.
+        # interaction-only: invisible unless Cloudflare needs the visitor to tick a box.
+        # data-action must match TURNSTILE_ACTION in functions/buy/[slug].js.
+        widget = (f'<div class="cf-turnstile" data-sitekey="{e(site["turnstile_site_key"])}" data-action="buy" '
+                  'data-appearance="interaction-only" data-language="uk"></div>')
+        return (f'<form class="buy-form {extra_class}" method="post" action="/buy/{e(book["slug"])}">{widget}'
                 f'<button class="buy" type="submit">Купити PDF — {price_uah(site, book)} грн</button></form>')
     return f'<span class="buy buy--off {extra_class}">Незабаром</span>'
 
@@ -266,6 +279,8 @@ def book_page(site, book, sizes):
     h = head(site, title=book["seo_title"], description=book["seo_description"],
              path=f"/{book['slug']}/", image=f"/{book['slug']}/cover.jpg",
              jsonld=book_jsonld(site, book), og_type="book")
+    if site.get("sales_enabled"):
+        h += f'\n<script src="{TURNSTILE_JS}" async defer></script>\n<script src="/buy.js" defer></script>'
     return page(site, h, body)
 
 
@@ -395,6 +410,7 @@ def write_function_catalog(site, books, files):
             "name": site["name"],
             "email": site["contact_email"],
             "sales_enabled": bool(site.get("sales_enabled")),
+            "turnstile_site_key": site.get("turnstile_site_key", ""),
             "jar_url": site["jar"]["url"],
             "jar_account_id": site["jar"]["account_id"],
         },

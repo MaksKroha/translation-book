@@ -18,5 +18,7 @@
       "database_id": "bfe2b00b-f577-45f9-833e-34cb4897f35a"
     }
   ],
+  // Jar poll every 5 minutes (src/worker.js → scheduled), a backup for the monobank webhook.
+  "triggers": { "crons": ["*/5 * * * *"] },
   "observability": { "enabled": true }
 }

@@ -14,7 +14,7 @@ Buyer clicks "Купити PDF — 85 грн"
 Buyer pays into your jar: any Visa/Mastercard, Apple Pay, Google Pay; code in the comment
    │
    ├─▶ monobank notifies the site instantly (webhook)
-   └─▶ backup: the site checks the jar statement once a minute while a buyer is waiting
+   └─▶ backup: the site checks the jar statement every 5 minutes (cron), and once a minute while a buyer is waiting
    │
    ▼
 /pay/ page turns into "Дякуємо! Завантажити PDF" automatically (usually within a minute)
@@ -48,8 +48,9 @@ Buyer pays into your jar: any Visa/Mastercard, Apple Pay, Google Pay; code in th
 - [ ] Signed licence from the rights holder covering **Ukrainian e-book distribution** (for
       *One Up on Wall Street*: Simon & Schuster / Peter Lynch's agent). Keep a PDF copy.
 - [ ] Rights to the cover photo.
-- [ ] In the PDF, replace *"Неофіційне видання для особистого користування"* ("unofficial edition for
-      personal use") with your rights line, e.g. *"Переклад українською © 2026 <you>. Видано за ліцензією <rights holder>."*
+- [x] Removed *"Неофіційне видання для особистого користування"* ("unofficial edition for personal use")
+      from the PDF (page 2). Once the licence is signed you can add a rights line there, e.g.
+      *"Переклад українською © 2026 <you>. Видано за ліцензією <rights holder>."*
 - [ ] Use one spelling of the co-author everywhere (the cover says **Ротшильда**, the PDF and site say **Ротчайлд**).
 - [ ] Put the final PDF in `books/book_1/`.
 
@@ -130,6 +131,7 @@ Settings live in `wrangler.jsonc`.
 4. [ ] Worker → **Settings → Variables and Secrets** → add, as type **Secret**:
    - `MONO_PERSONAL_TOKEN` = your personal token
    - `MONO_HOOK_SECRET` = the random string from Phase 2
+   - `TURNSTILE_SECRET_KEY` = the Turnstile secret key (step 3.6)
    Secrets take effect immediately and are kept across deploys.
 5. [ ] Check: `https://translation-book.<your-subdomain>.workers.dev` opens, and `/protected/x.pdf` returns **Not found**.
        Use this address as `site.url` if you have no domain yet.
@@ -143,13 +145,34 @@ monobank checks the URL right away. If it refuses, make sure the deploy from 3.3
 secret in the URL matches the Cloudflare secret exactly.
 
 > A personal account has **one** webhook. If another app already uses it, it gets replaced. The
-> once-a-minute backup check keeps payments working even without the webhook, just slower (up to ~1 minute).
+> backup check keeps payments working even without the webhook, just slower: within ~1 minute while
+> the buyer's page is open, and within 5 minutes otherwise (cron trigger in `wrangler.jsonc`).
+>
+> The webhook always answers 200, even when the database fails, so monobank never switches it off.
+> Anything it couldn't save is picked up by the next poll, which continues from where the last
+> successful poll ended (up to 31 days back).
 
 ### 3.5 Own domain (optional, recommended)
 - [ ] Buy a `.com.ua` (imena.ua, hostiq.ua, …) or a `.com` (Cloudflare Registrar).
 - [ ] Cloudflare → **Add a site** → Free plan → switch the nameservers at your registrar.
 - [ ] Worker → **Settings → Domains & Routes → Add → Custom domain** → `yourdomain` (and `www.yourdomain`).
 - [ ] Update `site.url` → commit → push. Then **re-run 3.4** with the new domain.
+- [ ] Add the new domain to the Turnstile widget's hostnames (3.6).
+
+### 3.6 Bot check on the Buy button (Cloudflare Turnstile, free)
+Without it, a script can create unlimited orders and use up the free database quota. `build.py`
+refuses to build while `sales_enabled` is true and the site key is empty.
+
+1. [ ] dash.cloudflare.com → **Turnstile** → **Add widget**
+   - Name: `bookstore`; Hostnames: `translation-book.<your-subdomain>.workers.dev` (plus your own domain, if any)
+   - Widget mode: **Managed**
+2. [ ] Copy the **Site key** into `catalog.json` → `site.turnstile_site_key` (it's public).
+3. [ ] Copy the **Secret key** into Worker → **Settings → Variables and Secrets** as a **Secret** named
+       `TURNSTILE_SECRET_KEY`. Do this **before** pushing, or Buy shows "Продаж незабаром".
+4. [ ] `python3 build.py` → commit → push. Click **Купити** on the live site: you should land on `/pay/`.
+       The widget stays invisible unless Cloudflare wants the visitor to tick a box.
+
+`POST /buy` also rejects forms sent from other websites (Origin check).
 
 ## Phase 4: Go live and test with real money (paying yourself)
 
@@ -222,12 +245,12 @@ the jar history in the app, then send the PDF (or the download link from the mat
 | `catalog.json` | All content and settings: site, seller, price, jar, books |
 | `build.py` | Builds `public/` (pages, covers, sitemap, legal pages) and `lib/catalog.generated.js` |
 | `assets/` | CSS and favicon; anything here is copied to the site root |
-| `functions/buy/[slug].js` | Starts a purchase: creates an order with a 6-digit code |
+| `functions/buy/[slug].js` | Starts a purchase: Origin + Turnstile checks, then creates an order with a 6-digit code |
 | `functions/pay/` | Code + payment instructions, then the download button |
 | `functions/api/order.js` | Status check used by the /pay/ page (plus the backup statement check) |
 | `functions/api/mono-hook/[secret].js` | monobank webhook receiver |
 | `functions/download/` | Sends the PDF, only for paid orders |
-| `src/worker.js`, `wrangler.jsonc` | Worker entry (routes + blocks /protected/) and Cloudflare config (assets, D1) |
+| `src/worker.js`, `wrangler.jsonc` | Worker entry (routes, blocks /protected/, 5-minute jar poll) and Cloudflare config (assets, D1, cron) |
 | `lib/jar.js` | Order logic, D1 storage, payment matching |
 | `tools/monobank.py` | Lists jars, registers the webhook |
 
@@ -236,7 +259,9 @@ the jar history in the app, then send the PDF (or the download link from the mat
 | Problem | Fix |
 |---|---|
 | Button says "Незабаром" | `sales_enabled` is false |
-| Clicking Buy shows "Продаж незабаром" | The `DB` binding is missing, `jar.url` / `jar.account_id` are empty, or you didn't redeploy after adding bindings |
+| Clicking Buy shows "Продаж незабаром" | The `DB` binding is missing, `jar.url` / `jar.account_id` / `turnstile_site_key` are empty, the `TURNSTILE_SECRET_KEY` secret is missing, or you didn't redeploy after adding bindings. The Worker log says which |
+| Clicking Buy shows "Не вдалося перевірити браузер" | Turnstile rejected the token. Worker log → `turnstile rejected` shows why: `invalid-input-secret` = wrong `TURNSTILE_SECRET_KEY`; hostname mismatch = add the domain to the widget (3.6) |
+| Build fails: `site.turnstile_site_key is empty` | Do step 3.6 |
 | Paid with the code, page stays on "Очікуємо оплату" | Wait 1 minute. If it's still stuck: check `MONO_PERSONAL_TOKEN` in Cloudflare and that `jar.account_id` is the **account_id** (not the link id); check Functions logs |
 | `tools/monobank.py webhook` fails | Site not deployed yet, wrong secret in the URL, or the URL isn't https |
 | monobank error 429 in logs | Normal now and then (API limit: 1 statement request per minute). The webhook still works |

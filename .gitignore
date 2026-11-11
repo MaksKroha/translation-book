@@ -1,0 +1,5 @@
+# NOTE: the PDFs ARE committed (Cloudflare builds from the repo). Keep the GitHub repo PRIVATE.
+# Build output (recreated by build.py)
+public/
+lib/catalog.generated.js
+__pycache__/

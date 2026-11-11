@@ -7,8 +7,9 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "404-page",
-    // PDFs live in public/protected/ — the Worker must see these requests first to block them.
-    "run_worker_first": ["/protected/*"]
+    // These paths must reach the Worker before the static-asset layer (which would answer them
+    // with the 404 page, or 405 for the Buy button's POST). /protected/* holds the PDFs and is blocked.
+    "run_worker_first": ["/buy/*", "/pay", "/pay/*", "/api/*", "/download", "/download/*", "/protected/*"]
   },
   "d1_databases": [
     {

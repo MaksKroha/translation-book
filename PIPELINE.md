@@ -28,11 +28,11 @@ Buyer pays into your jar: any Visa/Mastercard, Apple Pay, Google Pay; code in th
 
 | Part | Service | Cost |
 |---|---|---|
-| Hosting + checkout code | Cloudflare Pages (+ Functions) | Free |
+| Hosting + checkout code | Cloudflare Workers (static assets + Worker) | Free |
 | Order database | Cloudflare D1 | Free |
 | Code storage | GitHub, private repo | Free |
 | Payments | monobank jar (банка) | Free for you (buyers paying from other banks' cards may pay their bank's fee) |
-| Address | `yourname.pages.dev`, or your own domain | Free, or ~$10/yr |
+| Address | `bookstore.<you>.workers.dev`, or your own domain | Free, or ~$10/yr |
 
 **Price:** 85 грн (≈ $1.99), set in `site.price_uah` in `catalog.json`.
 
@@ -75,7 +75,7 @@ Buyer pays into your jar: any Visa/Mastercard, Apple Pay, Google Pay; code in th
 ## Phase 2: Configure and build
 
 1. [ ] Edit `catalog.json`:
-   - `site.url`: your address. Without a domain, use `https://<project-name>.pages.dev`
+   - `site.url`: your address. Without a domain, use `https://bookstore.<your-subdomain>.workers.dev`
      (you pick the project name in Phase 3).
    - `site.contact_email`: a real address you check (buyers who forget the code write here)
    - `site.seller.name`: your name (shown on the Contacts and Offer pages). `tax_id`, `address` and `phone` are optional.
@@ -110,19 +110,29 @@ The checkout code can't be deployed by drag-and-drop, so Cloudflare builds the s
    Personal access tokens → Fine-grained → this repo, "Contents: Read and write").
 
 ### 3.2 Database (D1)
-- [ ] dash.cloudflare.com (free plan) → **Storage & Databases → D1** → **Create database** → name `bookstore`.
-      The tables are created automatically on first use, so there's nothing else to do here.
+- [ ] dash.cloudflare.com → **Storage & Databases → D1** → **Create database** → name `bookstore`.
+- [ ] Copy its **Database ID** and paste it into `wrangler.jsonc` → `database_id`, then commit and push.
+      The tables are created automatically on first use.
 
-### 3.3 Pages project
-1. [ ] **Workers & Pages → Create → Pages → Connect to Git** → choose `bookstore`. (Choose **Pages**, not "Worker".)
-2. [ ] Build settings: preset **None**, build command `python3 build.py`, output directory `public`,
-       variable `PYTHON_VERSION` = `3.12`. Then **Save and Deploy**.
-3. [ ] Project → **Settings → Bindings → Add → D1 database**: variable name **`DB`**, database `bookstore`.
-4. [ ] Project → **Settings → Variables and Secrets** → add, as type **Secret**:
-   - `MONO_PERSONAL_TOKEN` = your personal token (powers the once-a-minute backup check)
+### 3.3 Worker (connected to GitHub)
+The repo is a Cloudflare **Worker**: `src/worker.js` runs the checkout, and `public/` holds the static site.
+Settings live in `wrangler.jsonc`.
+
+1. [ ] **Workers & Pages → Create → Import a repository** → choose `bookstore`.
+       (If you already created the Worker, open it → **Settings → Build** instead.)
+2. [ ] Build settings:
+   - Build command: `pip install -r requirements.txt && python3 build.py`
+   - Deploy command: `npx wrangler deploy`
+   - The Worker's name in the dashboard must match `"name"` in `wrangler.jsonc` (`bookstore`).
+     If yours is different, change it in the file.
+3. [ ] Push (or click **Retry build**). The log should end with a successful `wrangler deploy`.
+       The D1 binding `DB` comes from `wrangler.jsonc`, so there's nothing to add by hand.
+4. [ ] Worker → **Settings → Variables and Secrets** → add, as type **Secret**:
+   - `MONO_PERSONAL_TOKEN` = your personal token
    - `MONO_HOOK_SECRET` = the random string from Phase 2
-5. [ ] **Deployments → Retry deployment** (bindings and secrets apply on the next deploy).
-6. [ ] Check: `https://<project>.pages.dev` opens, and `/protected/x.pdf` returns **Not found**.
+   Secrets take effect immediately and are kept across deploys.
+5. [ ] Check: `https://bookstore.<your-subdomain>.workers.dev` opens, and `/protected/x.pdf` returns **Not found**.
+       Use this address as `site.url` if you have no domain yet.
 
 ### 3.4 Register the webhook (instant payment confirmation)
 ```bash
@@ -138,7 +148,7 @@ secret in the URL matches the Cloudflare secret exactly.
 ### 3.5 Own domain (optional, recommended)
 - [ ] Buy a `.com.ua` (imena.ua, hostiq.ua, …) or a `.com` (Cloudflare Registrar).
 - [ ] Cloudflare → **Add a site** → Free plan → switch the nameservers at your registrar.
-- [ ] Pages project → **Custom domains** → add `yourdomain` and `www.yourdomain`.
+- [ ] Worker → **Settings → Domains & Routes → Add → Custom domain** → `yourdomain` (and `www.yourdomain`).
 - [ ] Update `site.url` → commit → push. Then **re-run 3.4** with the new domain.
 
 ## Phase 4: Go live and test with real money (paying yourself)
@@ -157,7 +167,7 @@ secret in the URL matches the Cloudflare secret exactly.
 
 1. [ ] **Google Search Console** (search.google.com/search-console)
    - Own domain → **Domain** property → accept automatic verification through Cloudflare.
-   - pages.dev → **URL prefix** property → "HTML file" → put `googleXXXX.html` in `assets/` → push → Verify.
+   - workers.dev → **URL prefix** property → "HTML file" → put `googleXXXX.html` in `assets/` → push → Verify.
    - [ ] **Sitemaps** → submit `sitemap.xml`
    - [ ] **URL inspection** → `/one-up-on-wall-street-ukrainian/` and `/` → **Request indexing**
 2. [ ] https://search.google.com/test/rich-results → book URL → Product, Book, Breadcrumb and FAQ with no errors.
@@ -182,7 +192,7 @@ the jar history in the app, then send the PDF (or the download link from the mat
 
 **Weekly (15 min):**
 - [ ] Search Console → **Performance**: work weak query variants into `faq` / `description_uk` → push.
-- [ ] Cloudflare → Pages → **Functions** → logs: check for errors.
+- [ ] Cloudflare → your Worker → **Logs**: check for errors.
 - [ ] Cloudflare → D1 → `bookstore` → **Console**, to see unmatched payments:
   ```sql
   SELECT datetime(time,'unixepoch') AS t, amount/100.0 AS uah, comment, description
@@ -217,7 +227,7 @@ the jar history in the app, then send the PDF (or the download link from the mat
 | `functions/api/order.js` | Status check used by the /pay/ page (plus the backup statement check) |
 | `functions/api/mono-hook/[secret].js` | monobank webhook receiver |
 | `functions/download/` | Sends the PDF, only for paid orders |
-| `functions/protected/` | Blocks direct access to the PDFs |
+| `src/worker.js`, `wrangler.jsonc` | Worker entry (routes + blocks /protected/) and Cloudflare config (assets, D1) |
 | `lib/jar.js` | Order logic, D1 storage, payment matching |
 | `tools/monobank.py` | Lists jars, registers the webhook |
 

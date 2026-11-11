@@ -1,0 +1,21 @@
+{
+  // Cloudflare Worker config. Build: python3 build.py  →  Deploy: npx wrangler deploy
+  "name": "bookstore",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    // PDFs live in public/protected/ — the Worker must see these requests first to block them.
+    "run_worker_first": ["/protected/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "bookstore",
+      "database_id": "PASTE-YOUR-D1-DATABASE-ID-HERE"
+    }
+  ],
+  "observability": { "enabled": true }
+}

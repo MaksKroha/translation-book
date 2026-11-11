@@ -11,6 +11,7 @@ import datetime as dt
 import hashlib
 import html
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -95,6 +96,21 @@ def head(site, *, title, description, path, image=None, jsonld=None, og_type="we
     if jsonld:
         data = json.dumps(jsonld, ensure_ascii=False, indent=1).replace("</", "<\\/")
         tags.append(f'<script type="application/ld+json">{data}</script>')
+    return "\n".join(tags)
+
+
+def verification_meta(site):
+    """Ownership tags for Google Search Console / Bing Webmaster Tools (SEARCH_ENGINES.md).
+    catalog.json holds just the code; a whole pasted <meta ... content="..."> tag works too."""
+    tags = []
+    for key, name in (("google_site_verification", "google-site-verification"),
+                      ("bing_site_verification", "msvalidate.01")):
+        code = str(site.get(key) or "").strip()
+        m = re.search(r'content\s*=\s*["\']([^"\']+)["\']', code)
+        if m:
+            code = m.group(1).strip()
+        if code:
+            tags.append(f'<meta name="{name}" content="{e(code)}">')
     return "\n".join(tags)
 
 
@@ -319,6 +335,8 @@ def index_page(site, books, all_sizes):
 """
     h = head(site, title=f"{site['name']} — офіційні українські переклади книг у PDF",
              description=description, path="/", jsonld=jsonld)
+    if verification_meta(site):
+        h += "\n" + verification_meta(site)
     return page(site, h, body)
 
 

@@ -32,6 +32,7 @@ Buyer pays into your jar: any Visa/Mastercard, Apple Pay, Google Pay; code in th
 | Order database | Cloudflare D1 | Free |
 | Code storage | GitHub, private repo | Free |
 | Payments | monobank jar (банка) | Free for you (buyers paying from other banks' cards may pay their bank's fee) |
+| Translation request emails | Resend, free plan (3,000 a month, 100 a day) | Free |
 | Address | `translation-book.<you>.workers.dev`, or your own domain | Free, or ~$10/yr |
 
 **Price:** 85 грн (≈ $1.99), set in `site.price_uah` in `catalog.json`.
@@ -174,6 +175,42 @@ refuses to build while `sales_enabled` is true and the site key is empty.
 
 `POST /buy` also rejects forms sent from other websites (Origin check).
 
+### 3.7 Translation requests by email (Resend, free)
+The «Замовити переклад» page (`/zamovyty-pereklad/`, linked from the home page and the footer) saves
+each request in the database and emails it to you through [Resend](https://resend.com). Without your own
+domain, Resend can only send to the address the Resend account was created with. That's enough here,
+because these emails go only to you.
+
+The form uses the same Turnstile widget and Origin check as Buy, so there's nothing to change in Turnstile.
+
+1. [ ] resend.com → **Sign up** with **`vladyslavzariskyi+pereklad@gmail.com`**: your Gmail address with
+       `+pereklad` added. Gmail delivers it to your normal inbox, and the `+pereklad` part lets the filter in
+       step 4 pick these emails out. Confirm the address from the email Resend sends.
+   - If you'd rather use a Resend account you already have, set `site.requests_email` in `catalog.json` to
+     that account's exact address and use the alternative filter in step 4.
+2. [ ] Resend → **API Keys → Create API key** → name `bookstore`, permission **Sending access** → copy the key
+       (it starts with `re_` and is shown only once).
+3. [ ] Cloudflare → your Worker → **Settings → Variables and Secrets** → **Add** → type **Secret**, name
+       `RESEND_API_KEY`, value = the key. Keep it nowhere else: not in files, not in chats.
+4. [ ] **Gmail filter**, so requests get their own label and skip the inbox:
+   1. In Gmail, click **Show search options** (the sliders icon at the right end of the search box).
+   2. **To:** `vladyslavzariskyi+pereklad@gmail.com`
+   3. Click **Create filter**.
+   4. Tick **Skip the Inbox (Archive it)**; **Apply the label** → **New label…** → `Запити на переклад` → **Create**;
+      and **Never send it to Spam**.
+   5. Click **Create filter**. The label appears in Gmail's left column.
+
+   Why "To" and not the subject: when a visitor answers your reply, their email also has
+   "Re: [Запит на переклад] …" in the subject, and it should land in your inbox.
+   Alternative filter, if you didn't use the plus address: **From:** `onboarding@resend.dev`, **Subject:** `Запит на переклад`.
+5. [ ] `catalog.json` already has `"requests_email": "vladyslavzariskyi+pereklad@gmail.com"`. Optional:
+       `requests_emails_per_day` (default 50, at most 95) caps the request emails per 24 hours. Requests
+       over the cap wait in the database and go out on a later 5-minute run.
+6. [ ] Push. Then test: open `/zamovyty-pereklad/`, send a request with your own email → thank-you page →
+       within a minute the email is under **Запити на переклад**. Click **Reply**: the "To" field shows the
+       visitor's address (yours, in this test).
+       Nothing arrived? Worker → **Logs**, search for `translation request` (see Troubleshooting).
+
 ## Phase 4: Go live and test with real money (paying yourself)
 
 1. [ ] `catalog.json` → `"sales_enabled": true` → `python3 build.py` → `git commit -am "Open sales" && git push`.
@@ -188,15 +225,7 @@ refuses to build while `sales_enabled` is true and the site key is empty.
 
 ## Phase 5: Get onto Google and Bing
 
-1. [ ] **Google Search Console** (search.google.com/search-console)
-   - Own domain → **Domain** property → accept automatic verification through Cloudflare.
-   - workers.dev → **URL prefix** property → "HTML file" → put `googleXXXX.html` in `assets/` → push → Verify.
-   - [ ] **Sitemaps** → submit `sitemap.xml`
-   - [ ] **URL inspection** → `/one-up-on-wall-street-ukrainian/` and `/` → **Request indexing**
-2. [ ] https://search.google.com/test/rich-results → book URL → Product, Book, Breadcrumb and FAQ with no errors.
-3. [ ] https://pagespeed.web.dev → the mobile score should be 90+.
-4. [ ] bing.com/webmasters → **Import from Google Search Console**.
-5. [ ] After 3–7 days, Google `site:yourdomain` and check the book page is listed.
+Step by step, with what to expect afterwards: **[SEARCH_ENGINES.md](SEARCH_ENGINES.md)**.
 
 ## Phase 6: Promotion (this is what gets you to the top)
 
@@ -227,16 +256,41 @@ the jar history in the app, then send the PDF (or the download link from the mat
   ```
   The buyer's own /pay/ page then shows the download button.
 
+**Translation requests** (Gmail label **Запити на переклад**, step 3.7). Every email has a number in the
+subject (`[Запит на переклад] #17 …`) and two ready-made replies:
+- **Написати: переклад готовий**: opens an email to the visitor. Replace `АДРЕСА-КНИГИ` with the book page's address and send.
+- **Написати: не можемо взятися**: a polite "no" for books you can't take on.
+- Or just click **Reply**: it goes to the visitor.
+
+Then mark the request in Cloudflare → D1 → `bookstore` → **Console**:
+```sql
+-- Open requests, newest first
+SELECT id, datetime(created,'unixepoch') AS received, title, author, email, link, comment
+FROM translation_requests WHERE status = 'new' ORDER BY id DESC;
+
+-- Mark one done (the number from the email subject), or declined
+UPDATE translation_requests SET status = 'done' WHERE id = 17;
+UPDATE translation_requests SET status = 'declined' WHERE id = 17;
+
+-- Everyone who asked for the same book. LIKE ignores upper/lower case only for Latin letters,
+-- so use a lower-case piece from the middle of the title (or a piece of the link)
+SELECT id, datetime(created,'unixepoch') AS received, title, email, status
+FROM translation_requests WHERE title LIKE '%звички%' OR link LIKE '%atomic-habits%' ORDER BY id;
+
+-- After writing to all of them: mark them all done at once
+UPDATE translation_requests SET status = 'done' WHERE status = 'new' AND title LIKE '%звички%';
+
+-- Requests whose email hasn't gone out yet (normally empty; see Troubleshooting)
+SELECT id, datetime(created,'unixepoch') AS received, datetime(tried_at,'unixepoch') AS last_try
+FROM translation_requests WHERE emailed_at IS NULL;
+```
+Requests are deleted automatically 180 days after they arrive (the public offer, §7, says so).
+
 ---
 
 ## Adding the next book
 
-1. [ ] Licence on file (Phase 0).
-2. [ ] Cover + PDF in `books/book_N/`.
-3. [ ] Copy the book entry in `catalog.json` and fill in the slug, titles, `seo_title`, `alternate_names`,
-       description, `toc` and `faq`. Add `"price_uah": 120` if this book has a different price.
-4. [ ] `python3 build.py` → `git add . && git commit -m "Add <book>" && git push`.
-5. [ ] Search Console → **Request indexing** for the new URL. Then promote it.
+Step by step, from the English PDF to a live page: **[ADDING_BOOKS.md](ADDING_BOOKS.md)**.
 
 ## Files
 
@@ -246,12 +300,15 @@ the jar history in the app, then send the PDF (or the download link from the mat
 | `build.py` | Builds `public/` (pages, covers, sitemap, legal pages) and `lib/catalog.generated.js` |
 | `assets/` | CSS and favicon; anything here is copied to the site root |
 | `functions/buy/[slug].js` | Starts a purchase: Origin + Turnstile checks, then creates an order with a 6-digit code |
+| `functions/api/translation-request.js` | The «Замовити переклад» form: Origin + Turnstile checks, field checks, then saves and emails the request |
 | `functions/pay/` | Code + payment instructions, then the download button |
 | `functions/api/order.js` | Status check used by the /pay/ page (plus the backup statement check) |
 | `functions/api/mono-hook/[secret].js` | monobank webhook receiver |
 | `functions/download/` | Sends the PDF, only for paid orders |
-| `src/worker.js`, `wrangler.jsonc` | Worker entry (routes, blocks /protected/, 5-minute jar poll) and Cloudflare config (assets, D1, cron) |
+| `src/worker.js`, `wrangler.jsonc` | Worker entry (routes, blocks /protected/, 5-minute jar poll and request-email retries) and Cloudflare config (assets, D1, cron) |
 | `lib/jar.js` | Order logic, D1 storage, payment matching |
+| `lib/guard.js` | Origin + Turnstile checks shared by Buy and the request form |
+| `lib/requests.js` | Translation requests: D1 table, limits, the email to you (Resend), retries and clean-up |
 | `tools/monobank.py` | Lists jars, registers the webhook |
 
 ## Troubleshooting
@@ -265,5 +322,7 @@ the jar history in the app, then send the PDF (or the download link from the mat
 | Paid with the code, page stays on "Очікуємо оплату" | Wait 1 minute. If it's still stuck: check `MONO_PERSONAL_TOKEN` in Cloudflare and that `jar.account_id` is the **account_id** (not the link id); check Functions logs |
 | `tools/monobank.py webhook` fails | Site not deployed yet, wrong secret in the URL, or the URL isn't https |
 | monobank error 429 in logs | Normal now and then (API limit: 1 statement request per minute). The webhook still works |
+| Request form says «Форма тимчасово не працює» | The `TURNSTILE_SECRET_KEY` secret or the D1 binding is missing (Worker log: `translation requests not configured`), or 100 requests arrived within 24 hours |
+| Requests are saved, but no email arrives | Check Gmail's Spam folder and the filter (3.7). Then Worker → **Logs**, search for `translation request`: `RESEND_API_KEY is not set` = add the secret; a message about **testing emails** = `site.requests_email` isn't the exact address of your Resend account; HTTP 401/403 = wrong key, create a new one; HTTP 429 = Resend's limit. Unsent requests are retried every 5 minutes, up to 3 per run |
 | Cloudflare build fails on Pillow | Set the `PYTHON_VERSION=3.12` variable and retry the deploy |
 | Search Console: "Discovered – currently not indexed" | Normal at first. Get 2–3 external links and request indexing again |

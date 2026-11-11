@@ -41,6 +41,14 @@ def load():
         warnings.append("site.seller.name is not filled in.")
     if "example.com" in site["contact_email"]:
         warnings.append("site.contact_email is still a placeholder.")
+    if not site.get("turnstile_site_key"):
+        warnings.append("site.turnstile_site_key is empty — the translation request page shows only the contact email, no form.")
+    per_day = site.get("requests_emails_per_day", 50)
+    if not isinstance(per_day, int) or not 1 <= per_day <= 95:
+        sys.exit("ERROR: site.requests_emails_per_day must be a whole number from 1 to 95 "
+                 "(Resend's free plan sends at most 100 emails a day).")
+    if site.get("requests_email") and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", site["requests_email"]):
+        sys.exit("ERROR: site.requests_email doesn't look like an email address.")
     if site.get("sales_enabled") and not site.get("turnstile_site_key"):
         # Fail the build (the live site stays as it is) rather than deploy a Buy button with no bot check.
         sys.exit("ERROR: site.turnstile_site_key is empty, but sales_enabled is true. Create a free "
@@ -114,6 +122,15 @@ def verification_meta(site):
     return "\n".join(tags)
 
 
+# Translation requests ("Замовити переклад"). The paths must match functions/api/translation-request.js.
+REQUEST_PATH = "/zamovyty-pereklad/"
+THANKS_PATH = "/zamovyty-pereklad/dyakuyemo/"
+REQUEST_ESTIMATE = ("Орієнтовний термін перекладу — близько тижня. "
+                    "Коли переклад буде готовий, ми напишемо вам на email.")
+REQUEST_DECLINE = ("Якщо взятися за книгу не вийде (наприклад, через авторські права), "
+                   "ми теж вам про це напишемо.")
+
+
 def header(site):
     return f"""<header class="top"><div class="wrap">
 <a class="logo" href="/">{e(site['name'])}</a>
@@ -122,7 +139,7 @@ def header(site):
 
 def footer(site):
     return f"""<footer class="foot"><div class="wrap">
-<nav class="foot__links"><a href="/oplata/">Оплата і доставка</a><a href="/oferta/">Публічна оферта</a><a href="/contacts/">Контакти</a></nav>
+<nav class="foot__links"><a href="{REQUEST_PATH}">Замовити переклад</a><a href="/oplata/">Оплата і доставка</a><a href="/oferta/">Публічна оферта</a><a href="/contacts/">Контакти</a></nav>
 <p>Оплата карткою Visa / Mastercard, Apple Pay, Google Pay через monobank.</p>
 <p>© {dt.date.today().year} {e(site['name'])} · {e(site['seller']['name'])} · <a href="mailto:{e(site['contact_email'])}">{e(site['contact_email'])}</a></p>
 </div></footer>"""
@@ -332,6 +349,11 @@ def index_page(site, books, all_sizes):
 <ul class="grid">
 {chr(10).join(cards)}
 </ul>
+<section class="ask">
+  <h2>Не знайшли потрібну книгу?</h2>
+  <p>Напишіть, яку книгу ви хочете прочитати українською. Орієнтовний термін перекладу — близько тижня.</p>
+  <a class="buy" href="{REQUEST_PATH}">Замовити переклад</a>
+</section>
 """
     h = head(site, title=f"{site['name']} — офіційні українські переклади книг у PDF",
              description=description, path="/", jsonld=jsonld)
@@ -344,6 +366,66 @@ def not_found(site):
     h = head(site, title=f"Сторінку не знайдено — {site['name']}", description="Сторінку не знайдено.", path="/404")
     h += '\n<meta name="robots" content="noindex">'
     return page(site, h, '<section class="hero"><h1>Сторінку не знайдено</h1><p><a href="/">До всіх книг →</a></p></section>')
+
+
+def request_page(site):
+    """The translation request form. It posts to functions/api/translation-request.js, which checks
+    Origin + Turnstile, saves the request in D1 and emails it to site.requests_email."""
+    mail = f'<a href="mailto:{e(site["contact_email"])}">{e(site["contact_email"])}</a>'
+    if site.get("turnstile_site_key"):
+        # Field limits match LIMITS in lib/requests.js (the Worker checks them again).
+        # "website" is a honeypot: hidden from people, so only bots fill it in.
+        # data-action must match TURNSTILE_ACTION in functions/api/translation-request.js.
+        form = f"""<form class="request-form" method="post" action="/api/translation-request">
+  <label>Назва книги
+    <input name="title" required maxlength="200" autocomplete="off"></label>
+  <label>Автор <span>(необов’язково)</span>
+    <input name="author" maxlength="200" autocomplete="off"></label>
+  <label>Посилання на книгу <span>(Goodreads, Amazon тощо; необов’язково)</span>
+    <input name="link" type="url" maxlength="500" placeholder="https://" autocomplete="off"></label>
+  <label>Ваш email <span>(напишемо, коли переклад буде готовий)</span>
+    <input name="email" type="email" required maxlength="254" autocomplete="email"></label>
+  <label>Коментар <span>(необов’язково)</span>
+    <textarea name="comment" maxlength="1000" rows="4"></textarea></label>
+  <div class="hp" aria-hidden="true"><label>Не заповнюйте це поле <input name="website" tabindex="-1" autocomplete="off"></label></div>
+  <div class="cf-turnstile" data-sitekey="{e(site["turnstile_site_key"])}" data-action="request" data-appearance="interaction-only" data-language="uk"></div>
+  <button class="buy" type="submit">Надіслати запит</button>
+</form>
+<p class="note">Email потрібен лише для того, щоб повідомити вам про цей переклад, — жодних розсилок. Запит зберігається до 180 днів.</p>
+<p class="note">Форма не працює? Напишіть нам на {mail} — назву книги й автора.</p>"""
+    else:
+        form = f"<p>Напишіть нам на {mail} — назву книги й автора.</p>"
+    body = f"""
+<section class="block request">
+  <h1>Замовити переклад книги українською</h1>
+  <p>Не знайшли потрібну книгу? Напишіть, яку книгу ви хочете прочитати українською, — і ми візьмемося за її переклад.</p>
+  <p class="promise">{REQUEST_ESTIMATE}</p>
+  <p class="note">{REQUEST_DECLINE}</p>
+  {form}
+</section>
+"""
+    h = head(site, title=f"Замовити переклад книги українською — {site['name']}",
+             description=("Не знайшли потрібну книгу українською? Залиште запит на переклад: орієнтовний термін — "
+                          "близько тижня, а коли переклад буде готовий, ми напишемо вам на email."),
+             path=REQUEST_PATH)
+    if site.get("turnstile_site_key"):
+        h += f'\n<script src="{TURNSTILE_JS}" async defer></script>\n<script src="/request.js" defer></script>'
+    return page(site, h, body)
+
+
+def request_thanks_page(site):
+    """Where the form redirects after a request is saved. Static, so a refresh sends nothing."""
+    mail = f'<a href="mailto:{e(site["contact_email"])}">{e(site["contact_email"])}</a>'
+    h = head(site, title=f"Запит надіслано — {site['name']}", description="Запит на переклад надіслано.",
+             path=THANKS_PATH)
+    h += '\n<meta name="robots" content="noindex">'
+    return page(site, h, f"""<section class="hero status">
+  <h1>Дякуємо! Запит надіслано</h1>
+  <p class="promise">{REQUEST_ESTIMATE}</p>
+  <p>{REQUEST_DECLINE}</p>
+  <p>Маєте запитання? Напишіть нам на {mail}.</p>
+  <p><a class="buy" href="/">До всіх книг</a></p>
+</section>""")
 
 
 def simple_page(site, path, title, body):
@@ -396,6 +478,7 @@ def legal_pages(site):
 <p>Умови повернення описані на сторінці <a href="/oplata/">«Оплата і доставка»</a>.</p>
 <h2>7. Персональні дані</h2>
 <p>Платіжні дані обробляє банк. Продавець отримує від банку лише інформацію, необхідну для підтвердження оплати, і не передає її третім особам, окрім випадків, передбачених законом.</p>
+<p>Якщо ви залишаєте <a href="{REQUEST_PATH}">запит на переклад</a>, Продавець зберігає дані з форми (назву книги, коментар і ваш email) лише для того, щоб повідомити вам про цей переклад, і видаляє їх через 180 днів. Запит надходить Продавцеві електронною поштою через сервіс Resend.</p>
 <h2>8. Інші умови</h2>
 <p>Відносини сторін регулюються законодавством України. Продавець може змінювати умови оферти; нові умови діють для замовлень, оформлених після їх публікації на Сайті.</p>
 <h2>9. Реквізити Продавця</h2>
@@ -431,6 +514,11 @@ def write_function_catalog(site, books, files):
             "turnstile_site_key": site.get("turnstile_site_key", ""),
             "jar_url": site["jar"]["url"],
             "jar_account_id": site["jar"]["account_id"],
+            "url": site["url"],
+            # Translation requests (lib/requests.js)
+            "requests_email": site.get("requests_email") or site["contact_email"],
+            "requests_from": site.get("requests_from") or "onboarding@resend.dev",
+            "requests_emails_per_day": site.get("requests_emails_per_day", 50),
         },
         "books": {
             b["slug"]: {
@@ -463,6 +551,9 @@ def main():
 
     (OUT / "index.html").write_text(index_page(site, books, all_sizes), encoding="utf-8")
     (OUT / "404.html").write_text(not_found(site), encoding="utf-8")
+    for path, html_text in ((REQUEST_PATH, request_page(site)), (THANKS_PATH, request_thanks_page(site))):
+        (OUT / path.strip("/")).mkdir(parents=True, exist_ok=True)
+        (OUT / path.strip("/") / "index.html").write_text(html_text, encoding="utf-8")
     legal = legal_pages(site)
     for slug, (title, body) in legal.items():
         (OUT / slug).mkdir()
@@ -470,12 +561,13 @@ def main():
     write_function_catalog(site, books, files)
 
     urls = ([f"{site['url']}/"] + [f"{site['url']}/{b['slug']}/" for b in books]
-            + [f"{site['url']}/{slug}/" for slug in legal])
+            + [f"{site['url']}{REQUEST_PATH}"] + [f"{site['url']}/{slug}/" for slug in legal])
     (OUT / "sitemap.xml").write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
         + "".join(f"  <url><loc>{e(u)}</loc><lastmod>{TODAY}</lastmod></url>\n" for u in urls)
         + "</urlset>\n", encoding="utf-8")
+    # /api/ also covers the translation request form's POST endpoint (/api/translation-request).
     (OUT / "robots.txt").write_text("User-agent: *\nDisallow: /buy/\nDisallow: /pay/\nDisallow: /api/\nDisallow: /download/\nDisallow: /protected/\n\n"
         f"Sitemap: {site['url']}/sitemap.xml\n",
                                     encoding="utf-8")

@@ -6,32 +6,13 @@
 //      browsers create orders.
 //   2. Cloudflare Turnstile: the form carries a one-time token from the widget on the book page
 //      (build.py → buy_button), verified with Cloudflare. Stops scripts creating orders in bulk.
+// Both checks live in lib/guard.js (shared with the translation request form).
 import catalog from "../../lib/catalog.generated.js";
 import { createOrder } from "../../lib/jar.js";
 import { statusPage, contactLine } from "../../lib/html.js";
+import { fromOwnSite, passedTurnstile } from "../../lib/guard.js";
 
-const SITEVERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 const TURNSTILE_ACTION = "buy"; // must match data-action in build.py → buy_button()
-
-function fromOwnSite(request) {
-  const ownOrigin = new URL(request.url).origin;
-  return request.headers.get("Sec-Fetch-Site") === "same-origin" || request.headers.get("Origin") === ownOrigin;
-}
-
-// true = human, false = token missing/invalid/used. Throws if Cloudflare can't be reached.
-async function passedTurnstile(request, env, token) {
-  if (typeof token !== "string" || !token || token.length > 2048) return false;
-  const form = new URLSearchParams({ secret: env.TURNSTILE_SECRET_KEY, response: token });
-  const ip = request.headers.get("CF-Connecting-IP");
-  if (ip) form.set("remoteip", ip);
-  const res = await fetch(SITEVERIFY, { method: "POST", body: form, signal: AbortSignal.timeout(10000) });
-  if (!res.ok) throw new Error(`turnstile siteverify HTTP ${res.status}`);
-  const out = await res.json();
-  const ok = out.success === true && out.action === TURNSTILE_ACTION
-    && out.hostname === new URL(request.url).hostname;
-  if (!ok) console.warn("turnstile rejected", JSON.stringify({ codes: out["error-codes"], action: out.action, hostname: out.hostname }));
-  return ok;
-}
 
 const tryAgain = (slug) =>
   `<p>Поверніться на сторінку книги й натисніть «Купити» ще раз.</p>
@@ -59,7 +40,7 @@ export async function onRequestPost({ request, params, env }) {
 
   try {
     const form = await request.formData().catch(() => null);
-    if (!(await passedTurnstile(request, env, form && form.get("cf-turnstile-response")))) {
+    if (!(await passedTurnstile(request, env, form && form.get("cf-turnstile-response"), TURNSTILE_ACTION))) {
       return statusPage("Не вдалося перевірити браузер", tryAgain(params.slug), { status: 403 });
     }
     const { token } = await createOrder(env, params.slug);

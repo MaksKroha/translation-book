@@ -135,3 +135,27 @@ button.buy { border: 0; cursor: pointer; font-family: inherit; }
 }
 .steps { text-align: left; max-width: 32em; margin: 16px auto; padding-left: 1.4em; }
 .steps li { margin: 8px 0; }
+
+/* Translation requests: home-page box, form page, thank-you page */
+.ask {
+  margin: 48px auto 0; max-width: 46em; padding: 24px 20px; text-align: center;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
+}
+.ask h2 { font-size: 1.4rem; }
+.ask p { color: var(--muted); margin: 0 auto 16px; max-width: 32em; }
+.request { max-width: 36em; }
+.request h1 { font-size: clamp(1.6rem, 5vw, 2.2rem); }
+.promise { padding: 12px 16px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--surface); }
+.request-form { display: grid; gap: 16px; margin: 24px 0 16px; }
+.request-form label { display: block; font-weight: 600; }
+.request-form label span { font-weight: 400; font-size: .9rem; color: var(--muted); }
+.request-form input, .request-form textarea {
+  display: block; width: 100%; margin-top: 6px; font: inherit; font-weight: 400; color: var(--text); background: var(--surface);
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+}
+.request-form input:focus, .request-form textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+.request-form textarea { resize: vertical; min-height: 7em; }
+.request-form .buy { justify-self: start; }
+.request-form .buy:disabled { opacity: .6; cursor: default; }
+@media (max-width: 759px) { .request-form .buy { justify-self: stretch; } }
+.hp { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }

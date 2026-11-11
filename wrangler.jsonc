@@ -14,7 +14,7 @@
     {
       "binding": "DB",
       "database_name": "bookstore",
-      "database_id": "PASTE-YOUR-D1-DATABASE-ID-HERE"
+      "database_id": "bfe2b00b-f577-45f9-833e-34cb4897f35a"
     }
   ],
   "observability": { "enabled": true }

@@ -32,7 +32,7 @@ Buyer pays into your jar: any Visa/Mastercard, Apple Pay, Google Pay; code in th
 | Order database | Cloudflare D1 | Free |
 | Code storage | GitHub, private repo | Free |
 | Payments | monobank jar (банка) | Free for you (buyers paying from other banks' cards may pay their bank's fee) |
-| Address | `bookstore.<you>.workers.dev`, or your own domain | Free, or ~$10/yr |
+| Address | `translation-book.<you>.workers.dev`, or your own domain | Free, or ~$10/yr |
 
 **Price:** 85 грн (≈ $1.99), set in `site.price_uah` in `catalog.json`.
 
@@ -75,7 +75,7 @@ Buyer pays into your jar: any Visa/Mastercard, Apple Pay, Google Pay; code in th
 ## Phase 2: Configure and build
 
 1. [ ] Edit `catalog.json`:
-   - `site.url`: your address. Without a domain, use `https://bookstore.<your-subdomain>.workers.dev`
+   - `site.url`: your address. Without a domain, use `https://translation-book.<your-subdomain>.workers.dev`
      (you pick the project name in Phase 3).
    - `site.contact_email`: a real address you check (buyers who forget the code write here)
    - `site.seller.name`: your name (shown on the Contacts and Offer pages). `tax_id`, `address` and `phone` are optional.
@@ -123,7 +123,7 @@ Settings live in `wrangler.jsonc`.
 2. [ ] Build settings:
    - Build command: `pip install -r requirements.txt && python3 build.py`
    - Deploy command: `npx wrangler deploy`
-   - The Worker's name in the dashboard must match `"name"` in `wrangler.jsonc` (`bookstore`).
+   - The Worker's name in the dashboard must match `"name"` in `wrangler.jsonc` (`translation-book`).
      If yours is different, change it in the file.
 3. [ ] Push (or click **Retry build**). The log should end with a successful `wrangler deploy`.
        The D1 binding `DB` comes from `wrangler.jsonc`, so there's nothing to add by hand.
@@ -131,7 +131,7 @@ Settings live in `wrangler.jsonc`.
    - `MONO_PERSONAL_TOKEN` = your personal token
    - `MONO_HOOK_SECRET` = the random string from Phase 2
    Secrets take effect immediately and are kept across deploys.
-5. [ ] Check: `https://bookstore.<your-subdomain>.workers.dev` opens, and `/protected/x.pdf` returns **Not found**.
+5. [ ] Check: `https://translation-book.<your-subdomain>.workers.dev` opens, and `/protected/x.pdf` returns **Not found**.
        Use this address as `site.url` if you have no domain yet.
 
 ### 3.4 Register the webhook (instant payment confirmation)

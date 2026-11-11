@@ -1,6 +1,6 @@
 {
   // Cloudflare Worker config. Build: python3 build.py  →  Deploy: npx wrangler deploy
-  "name": "bookstore",
+  "name": "translation-book",
   "main": "src/worker.js",
   "compatibility_date": "2025-09-01",
   "assets": {

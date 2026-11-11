@@ -6,7 +6,7 @@
     "contact_email": "vladyslavzariskyi@gmail.com",
     "price_uah": 99,
     "price_usd_hint": "1.99",
-    "sales_enabled": false,
+    "sales_enabled": true,
     "jar": {
       "url": "https://send.monobank.ua/jar/5uYsovxxMV",
       "account_id": "1SnZ3jP-TeNIZju2fp5RL-JMhgy8ECA"
